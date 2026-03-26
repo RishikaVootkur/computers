@@ -1,13 +1,190 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
-  provider = "prisma-client"
-  output   = "../src/generated/prisma"
+  provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "postgresql"
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum Role {
+  OWNER
+  STAFF
+  CUSTOMER
+}
+
+enum DeviceType {
+  LAPTOP
+  DESKTOP
+  PRINTER
+  MONITOR
+  UPS
+  OTHER
+}
+
+enum JobStatus {
+  RECEIVED
+  DIAGNOSED
+  IN_PROGRESS
+  WAITING_FOR_PARTS
+  COMPLETED
+  DELIVERED
+  CANCELLED
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  HALF_DAY
+}
+
+enum PaymentStatus {
+  PENDING
+  PARTIAL
+  PAID
+}
+
+enum PaymentMode {
+  CASH
+  PHONEPE
+}
+
+// ─── Models ───────────────────────────────────────────────────────────────────
+
+model Shop {
+  id        String   @id @default(uuid())
+  name      String
+  address   String
+  phone     String
+  email     String?
+  createdAt DateTime @default(now())
+
+  users       User[]
+  customers   Customer[]
+  serviceJobs ServiceJob[]
+  staff       Staff[]
+}
+
+model User {
+  id        String   @id @default(uuid())
+  shopId    String
+  name      String
+  email     String   @unique
+  password  String
+  phone     String?
+  role      Role     @default(STAFF)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  shop          Shop           @relation(fields: [shopId], references: [id])
+  assignedJobs  ServiceJob[]   @relation("AssignedJobs")
+  jobStatusLogs JobStatusLog[]
+  staff         Staff?
+}
+
+model Customer {
+  id        String   @id @default(uuid())
+  shopId    String
+  name      String
+  phone     String
+  email     String?
+  createdAt DateTime @default(now())
+
+  shop        Shop         @relation(fields: [shopId], references: [id])
+  serviceJobs ServiceJob[]
+
+  @@unique([shopId, phone])
+}
+
+model ServiceJob {
+  id              String     @id @default(uuid())
+  shopId          String
+  customerId      String
+  assignedTo      String?
+  jobNumber       String
+  deviceType      DeviceType
+  problemNotes    String?
+  remarks         String?
+  estimatedAmount Decimal?   @db.Decimal(10, 2)
+  finalAmount     Decimal?   @db.Decimal(10, 2)
+  status          JobStatus  @default(RECEIVED)
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  completedAt     DateTime?
+
+  shop       Shop           @relation(fields: [shopId], references: [id])
+  customer   Customer       @relation(fields: [customerId], references: [id])
+  assignee   User?          @relation("AssignedJobs", fields: [assignedTo], references: [id])
+  statusLogs JobStatusLog[]
+
+  @@unique([shopId, jobNumber])
+}
+
+model JobStatusLog {
+  id        String    @id @default(uuid())
+  jobId     String
+  changedBy String
+  oldStatus JobStatus
+  newStatus JobStatus
+  notes     String?
+  changedAt DateTime  @default(now())
+
+  job  ServiceJob @relation(fields: [jobId], references: [id])
+  user User       @relation(fields: [changedBy], references: [id])
+}
+
+model Staff {
+  id            String   @id @default(uuid())
+  userId        String   @unique
+  shopId        String
+  monthlySalary Decimal  @db.Decimal(10, 2)
+  joinedOn      DateTime @default(now())
+  isActive      Boolean  @default(true)
+
+  user          User           @relation(fields: [userId], references: [id])
+  shop          Shop           @relation(fields: [shopId], references: [id])
+  attendance    Attendance[]
+  salaryRecords SalaryRecord[]
+}
+
+model Attendance {
+  id      String           @id @default(uuid())
+  staffId String
+  date    DateTime         @db.Date
+  status  AttendanceStatus
+  notes   String?
+
+  staff Staff @relation(fields: [staffId], references: [id])
+
+  @@unique([staffId, date])
+}
+
+model SalaryRecord {
+  id            String        @id @default(uuid())
+  staffId       String
+  month         Int
+  year          Int
+  daysPresent   Decimal       @db.Decimal(4, 1)
+  perDayRate    Decimal       @db.Decimal(10, 2)
+  totalEarned   Decimal       @db.Decimal(10, 2)
+  totalPaid     Decimal       @default(0) @db.Decimal(10, 2)
+  paymentStatus PaymentStatus @default(PENDING)
+
+  staff    Staff           @relation(fields: [staffId], references: [id])
+  payments SalaryPayment[]
+
+  @@unique([staffId, month, year])
+}
+
+model SalaryPayment {
+  id             String      @id @default(uuid())
+  salaryRecordId String
+  amount         Decimal     @db.Decimal(10, 2)
+  paymentMode    PaymentMode
+  paidOn         DateTime    @db.Date
+  reference      String?
+  notes          String?
+
+  salaryRecord SalaryRecord @relation(fields: [salaryRecordId], references: [id])
 }
