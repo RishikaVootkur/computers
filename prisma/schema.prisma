@@ -39,6 +39,17 @@ enum AttendanceStatus {
   HALF_DAY
 }
 
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum LeaveType {
+  FULL
+  HALF
+}
+
 enum PaymentStatus {
   PENDING
   PARTIAL
@@ -48,6 +59,18 @@ enum PaymentStatus {
 enum PaymentMode {
   CASH
   PHONEPE
+}
+
+enum SaleStatus {
+  DRAFT
+  COMPLETED
+  CANCELLED
+}
+
+enum PurchaseStatus {
+  RECEIVED
+  PARTIAL
+  CANCELLED
 }
 
 // ─── Models ───────────────────────────────────────────────────────────────────
@@ -60,10 +83,16 @@ model Shop {
   email     String?
   createdAt DateTime @default(now())
 
-  users       User[]
-  customers   Customer[]
-  serviceJobs ServiceJob[]
-  staff       Staff[]
+  users             User[]
+  customers         Customer[]
+  serviceJobs       ServiceJob[]
+  staff             Staff[]
+  inventoryItems    InventoryItem[]
+  suppliers         Supplier[]
+  productCategories ProductCategory[]
+  products          Product[]
+  purchases         Purchase[]
+  sales             Sale[]
 }
 
 model User {
@@ -93,6 +122,7 @@ model Customer {
 
   shop        Shop         @relation(fields: [shopId], references: [id])
   serviceJobs ServiceJob[]
+  sales       Sale[]
 
   @@unique([shopId, phone])
 }
@@ -105,10 +135,13 @@ model ServiceJob {
   jobNumber       String
   deviceType      DeviceType
   problemNotes    String?
+  internalNotes   String?
   remarks         String?
   estimatedAmount Decimal?   @db.Decimal(10, 2)
   finalAmount     Decimal?   @db.Decimal(10, 2)
   status          JobStatus  @default(RECEIVED)
+  isUrgent        Boolean    @default(false)
+  warrantyUntil   DateTime?
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
   completedAt     DateTime?
@@ -117,6 +150,7 @@ model ServiceJob {
   customer   Customer       @relation(fields: [customerId], references: [id])
   assignee   User?          @relation("AssignedJobs", fields: [assignedTo], references: [id])
   statusLogs JobStatusLog[]
+  parts      JobPart[]
 
   @@unique([shopId, jobNumber])
 }
@@ -146,6 +180,7 @@ model Staff {
   shop          Shop           @relation(fields: [shopId], references: [id])
   attendance    Attendance[]
   salaryRecords SalaryRecord[]
+  leaveRequests LeaveRequest[]
 }
 
 model Attendance {
@@ -187,4 +222,156 @@ model SalaryPayment {
   notes          String?
 
   salaryRecord SalaryRecord @relation(fields: [salaryRecordId], references: [id])
+}
+
+model InventoryItem {
+  id          String   @id @default(uuid())
+  shopId      String
+  name        String
+  description String?
+  stock       Int      @default(0)
+  minStock    Int      @default(1)
+  costPrice   Decimal? @db.Decimal(10, 2)
+  createdAt   DateTime @default(now())
+
+  shop     Shop      @relation(fields: [shopId], references: [id])
+  jobParts JobPart[]
+}
+
+model JobPart {
+  id              String   @id @default(uuid())
+  jobId           String
+  inventoryItemId String
+  quantity        Int
+  costAtTime      Decimal  @db.Decimal(10, 2)
+  addedAt         DateTime @default(now())
+
+  job  ServiceJob    @relation(fields: [jobId], references: [id])
+  item InventoryItem @relation(fields: [inventoryItemId], references: [id])
+}
+
+model LeaveRequest {
+  id        String      @id @default(uuid())
+  staffId   String
+  date      DateTime    @db.Date
+  type      LeaveType
+  reason    String?
+  status    LeaveStatus @default(PENDING)
+  createdAt DateTime    @default(now())
+
+  staff Staff @relation(fields: [staffId], references: [id])
+}
+
+// ─── Sales Module ─────────────────────────────────────────────────────────────
+
+model Supplier {
+  id        String   @id @default(uuid())
+  shopId    String
+  name      String
+  phone     String?
+  email     String?
+  address   String?
+  gstin     String?
+  createdAt DateTime @default(now())
+
+  shop      Shop       @relation(fields: [shopId], references: [id])
+  purchases Purchase[]
+  products  Product[]
+}
+
+model ProductCategory {
+  id     String @id @default(uuid())
+  shopId String
+  name   String
+
+  shop     Shop      @relation(fields: [shopId], references: [id])
+  products Product[]
+
+  @@unique([shopId, name])
+}
+
+model Product {
+  id          String   @id @default(uuid())
+  shopId      String
+  categoryId  String?
+  supplierId  String?
+  name        String
+  description String?
+  sku         String?
+  costPrice   Decimal  @db.Decimal(10, 2)
+  sellPrice   Decimal  @db.Decimal(10, 2)
+  stock       Int      @default(0)
+  minStock    Int      @default(1)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  shop          Shop             @relation(fields: [shopId], references: [id])
+  category      ProductCategory? @relation(fields: [categoryId], references: [id])
+  supplier      Supplier?        @relation(fields: [supplierId], references: [id])
+  purchaseItems PurchaseItem[]
+  saleItems     SaleItem[]
+
+  @@unique([shopId, sku])
+}
+
+model Purchase {
+  id             String         @id @default(uuid())
+  shopId         String
+  supplierId     String?
+  purchaseNumber String
+  status         PurchaseStatus @default(RECEIVED)
+  totalAmount    Decimal        @db.Decimal(10, 2)
+  notes          String?
+  purchasedAt    DateTime       @default(now())
+  createdAt      DateTime       @default(now())
+
+  shop     Shop           @relation(fields: [shopId], references: [id])
+  supplier Supplier?      @relation(fields: [supplierId], references: [id])
+  items    PurchaseItem[]
+
+  @@unique([shopId, purchaseNumber])
+}
+
+model PurchaseItem {
+  id         String  @id @default(uuid())
+  purchaseId String
+  productId  String
+  quantity   Int
+  costAtTime Decimal @db.Decimal(10, 2)
+
+  purchase Purchase @relation(fields: [purchaseId], references: [id])
+  product  Product  @relation(fields: [productId], references: [id])
+}
+
+model Sale {
+  id         String     @id @default(uuid())
+  shopId     String
+  customerId String?
+  saleNumber String
+  status     SaleStatus @default(COMPLETED)
+  subtotal   Decimal    @db.Decimal(10, 2)
+  discount   Decimal    @default(0) @db.Decimal(10, 2)
+  tax        Decimal    @default(0) @db.Decimal(10, 2)
+  total      Decimal    @db.Decimal(10, 2)
+  paymentMode PaymentMode @default(CASH)
+  notes      String?
+  soldAt     DateTime   @default(now())
+  createdAt  DateTime   @default(now())
+
+  shop     Shop       @relation(fields: [shopId], references: [id])
+  customer Customer?  @relation(fields: [customerId], references: [id])
+  items    SaleItem[]
+
+  @@unique([shopId, saleNumber])
+}
+
+model SaleItem {
+  id          String  @id @default(uuid())
+  saleId      String
+  productId   String
+  quantity    Int
+  priceAtTime Decimal @db.Decimal(10, 2)
+
+  sale    Sale    @relation(fields: [saleId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
 }
